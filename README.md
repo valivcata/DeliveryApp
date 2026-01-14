@@ -1,6 +1,6 @@
 # Food Delivery Application - DDD Implementation
 
-A Domain-Driven Design (DDD) food delivery system with three isolated bounded contexts communicating via Azure Service Bus, mirroring the architecture of Proiect_PSSC.
+A Domain-Driven Design (DDD) food delivery system with three isolated bounded contexts communicating via Azure Service Bus.
 
 ## Architecture Overview
 
@@ -63,8 +63,8 @@ Each bounded context follows the same layered architecture:
 - `InvalidOrder` → Error state
 
 **Value Objects**:
-- `RestaurantId`: Format REST-XXXX (4 digits)
-- `CustomerPhone`: 10 digits
+- `RestaurantId`: Format REST-XXXX (4 digits, e.g., REST-0001)
+- `CustomerPhone`: 10 digits (formatting characters stripped)
 - `DeliveryAddress`: Min 10 characters
 - `OrderAmount`: Must be > 0
 
@@ -294,16 +294,22 @@ cd Delivery && dotnet build && cd ..
 cd Order
 dotnet ef migrations add InitialCreate --context OrderDbContext --output-dir Migrations
 dotnet ef database update --context OrderDbContext
+# Run restaurant data script
+sqlcmd -S localhost -d OrderDb -i Order.Data/Migrations/001_AddRestaurants.sql
+# Run idempotency migration
+sqlcmd -S localhost -d OrderDb -i Order.Data/Migrations/002_AddIdempotency.sql
 
 # Billing Context
 cd ../Billing
 dotnet ef migrations add InitialCreate --context BillingDbContext --output-dir Migrations
 dotnet ef database update --context BillingDbContext
+sqlcmd -S localhost -d BillingDb -i Billing.Data/Migrations/002_AddIdempotency.sql
 
 # Delivery Context
 cd ../Delivery
 dotnet ef migrations add InitialCreate --context DeliveryDbContext --output-dir Migrations
 dotnet ef database update --context DeliveryDbContext
+sqlcmd -S localhost -d DeliveryDb -i Delivery.Data/Migrations/002_AddIdempotency.sql
 ```
 
 ### Run Services (Separate Terminals)
@@ -320,34 +326,80 @@ cd Delivery && dotnet run
 
 ## Error Handling Strategy
 
-Following the Proiect_PSSC pattern:
+### Idempotency (✅ Implemented)
+All event listeners now implement message deduplication:
+- **ProcessedMessages table** tracks message IDs across all contexts
+- Messages are checked before processing to prevent duplicates
+- Same database transaction for business data and tracking
+- Automatic skip on re-delivery with proper logging
 
-1. **No Idempotency**: Simple MVP without message deduplication
-2. **Basic Retry**: Service Bus uses default retry with abandon/complete
-3. **Minimal Dead-Letter**: No DLQ usage (can be added later)
-4. **Exception Handling**: Try-catch in workers with abandon on error
+### Advanced Error Handling
+Event listeners implement sophisticated error categorization:
 
 ```csharp
 try
 {
+    // Check idempotency
+    if (await IsAlreadyProcessed(messageId)) {
+        await args.CompleteMessageAsync(args.Message);
+        return;
+    }
+    
     var result = await workflow.ExecuteAsync(data);
-    await args.CompleteMessageAsync(args.Message);  // Success
+    
+    // Record as processed
+    await MarkAsProcessed(messageId);
+    await args.CompleteMessageAsync(args.Message);
+}
+catch (JsonException ex)
+{
+    // Permanent error - immediate dead-letter
+    await args.DeadLetterMessageAsync(args.Message, "JsonError", ex.Message);
+}
+catch (InvalidOperationException ex)
+{
+    // Business logic error - dead-letter
+    await args.DeadLetterMessageAsync(args.Message, "BusinessLogicError", ex.Message);
+}
+catch (DbUpdateException ex)
+{
+    // Temporary DB error - retry
+    await args.AbandonMessageAsync(args.Message);
 }
 catch (Exception ex)
 {
-    _logger.LogError(ex, "Error processing message");
-    await args.AbandonMessageAsync(args.Message);  // Retry
+    // Max 3 retries before dead-letter
+    if (args.Message.DeliveryCount >= 3)
+        await args.DeadLetterMessageAsync(args.Message, "MaxRetriesExceeded", ex.Message);
+    else
+        await args.AbandonMessageAsync(args.Message);
 }
 ```
 
+### Repository Validation
+All repositories enforce workflow completion:
+- **OrderRepository**: Only persists `OrderPlaced` or `InvalidOrder`
+- **InvoiceRepository**: Only persists `InvoiceIssued` or `InvalidInvoice`  
+- **DeliveryRepository**: Only persists `DeliveryStarted` or `FailedDelivery`
+
+Prevents saving incomplete state transitions with clear exception messages.
+
 ## Testing the Flow
 
-### 1. Place an Order (Order Context)
-Execute the workflow manually or via HTTP endpoint:
+### 1. Place an Order (Interactive UI)
+The Order service includes an interactive console UI:
+```bash
+cd Order && dotnet run
+# Use arrow keys to select restaurant
+# Enter customer phone, address, and amount
+# View real-time success/error feedback
+```
+
+Or programmatically:
 ```csharp
 var order = new PlaceOrderDto
 {
-    RestaurantId = "REST-1234",
+    RestaurantId = "REST-0001",  // Note: Correct format with dash
     CustomerPhone = "5551234567",
     DeliveryAddress = "123 Main St, City",
     OrderAmount = 25.99m
@@ -359,45 +411,60 @@ var order = new PlaceOrderDto
 - **Billing** consumes from `order-topic` → calculates tax → saves to BillingDb → publishes to `billing-topic`
 - **Delivery** consumes from `billing-topic` → assigns driver → saves to DeliveryDb → publishes to `delivery-topic`
 
-### 3. Check Logs
+### 3. Test Idempotency
+```sql
+-- Manually re-deliver a message by querying ProcessedMessages
+SELECT * FROM ProcessedMessages WHERE ProcessorName = 'OrderPlacedListener';
+
+-- Delete the record to simulate re-delivery
+DELETE FROM ProcessedMessages WHERE MessageId = 'your-message-id';
+
+-- Observe: Second processing is skipped with log message
+```
+
+### 4. Check Logs
 Each service logs:
-- Message received
+- Message received with ID
+- Idempotency check result
 - Workflow execution
 - Message published
-- Errors (if any)
+- Detailed error categorization
+- Dead-letter events
 
 ## Project Statistics
 
-- **Total Files**: 92 (C#, csproj, json)
-- **C# Code Files**: 77
-- **Lines of Code**: ~3,500
+- **Total Files**: 101 (C#, csproj, json, sql)
+- **C# Code Files**: 86
+- **Lines of Code**: ~4,200
 - **Bounded Contexts**: 3
 - **Projects per Context**: 5
-- **Database Tables**: 3 (Orders, Invoices, Deliveries)
+- **Database Tables**: 7 (Orders, Invoices, Deliveries, Restaurants, 3x ProcessedMessages)
 - **Service Bus Topics**: 3
-- **Background Workers**: 2 (Billing, Delivery)
+- **Background Workers**: 3 (OrderRequestListener, OrderPlacedListener, InvoiceIssuedListener)
 
-## Key Differences from Proiect_PSSC
+## Recent Enhancements
 
-1. **Domain**: Food delivery vs Travel booking
-2. **Contexts**: Order/Billing/Delivery vs Booking/Payment/Ticketing
-3. **Tax Calculation**: 10% tax in Billing context
-4. **Driver Assignment**: Random driver allocation in Delivery
-5. **Event Names**: OrderPlaced/InvoiceIssued/DeliveryStarted
+### ✅ Completed
+1. **Idempotency**: Message ID tracking with ProcessedMessages table
+2. **Dead-Letter Queues**: Sophisticated error categorization and DLQ routing
+3. **Repository Validation**: State machine enforcement at persistence layer
+4. **Delivery Address Flow**: Proper event payload propagation
+5. **Interactive UI**: Arrow-key restaurant selection with visual feedback
+6. **Thread Safety**: SemaphoreSlim for console synchronization
+7. **Error Handling**: Retry limits, structured logging, and message tracking
 
-## Future Enhancements
-
-1. **Idempotency**: Add message ID tracking to prevent duplicate processing
-2. **Dead-Letter Queues**: Handle poison messages
-3. **Compensation**: Implement Saga pattern for rollbacks
-4. **API Layer**: Add REST APIs for Order placement
-5. **Event Sourcing**: Store all state transitions
-6. **CQRS**: Separate read/write models
-7. **Delivery Address**: Include address in invoice events
-8. **Driver Pool**: Real driver availability management
-9. **Route Optimization**: Integrate with mapping services
-10. **Monitoring**: Add Application Insights telemetry
+### 🔮 Future Enhancements
+1. **Compensation**: Implement Saga pattern for rollbacks
+2. **API Layer**: Add REST APIs for Order placement
+3. **Event Sourcing**: Store all state transitions
+4. **CQRS**: Separate read/write models
+5. **Driver Pool**: Real driver availability management
+6. **Route Optimization**: Integrate with mapping services
+7. **Monitoring**: Add Application Insights telemetry
+8. **Cleanup Jobs**: Automated ProcessedMessages table maintenance
+9. **Correlation IDs**: Distributed tracing across contexts
+10. **Health Checks**: Service Bus connectivity monitoring
 
 ## License
 
-This is an educational project mirroring the Proiect_PSSC architecture pattern.
+This is an educational project demonstrating Domain-Driven Design and event-driven microservices architecture.

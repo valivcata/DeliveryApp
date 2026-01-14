@@ -36,6 +36,17 @@ public class DeliveryRepository : IDeliveryRepository
 
     public async Task<Guid> SaveAsync(IDelivery delivery)
     {
+        // Validate that only final states are persisted
+        if (delivery is RequestedDelivery)
+        {
+            throw new InvalidOperationException("Cannot save requested delivery. Complete assignment first.");
+        }
+        
+        if (delivery is AssignedDelivery)
+        {
+            throw new InvalidOperationException("Cannot save assigned delivery. Complete the start operation first.");
+        }
+
         var entity = MapToEntity(delivery);
         
         _context.Deliveries.Add(entity);

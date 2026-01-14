@@ -36,6 +36,17 @@ public class InvoiceRepository : IInvoiceRepository
 
     public async Task<Guid> SaveAsync(IInvoice invoice)
     {
+        // Validate that only final states are persisted
+        if (invoice is UnprocessedInvoice)
+        {
+            throw new InvalidOperationException("Cannot save unprocessed invoice. Complete calculation first.");
+        }
+        
+        if (invoice is CalculatedInvoice)
+        {
+            throw new InvalidOperationException("Cannot save calculated invoice. Complete the issue operation first.");
+        }
+
         var entity = MapToEntity(invoice);
         
         _context.Invoices.Add(entity);

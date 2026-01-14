@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace Delivery.Workers;
 
@@ -65,31 +66,80 @@ public class InvoiceIssuedListener : BackgroundService
 
     private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
     {
+        var messageId = args.Message.MessageId;
+        
         try
         {
+            // Check for idempotency - skip if already processed
+            using var scope = _serviceScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<Delivery.Data.DeliveryDbContext>();
+            
+            var alreadyProcessed = await dbContext.ProcessedMessages
+                .AnyAsync(m => m.MessageId == messageId);
+            
+            if (alreadyProcessed)
+            {
+                _logger.LogInformation("Message {MessageId} already processed, skipping", messageId);
+                await args.CompleteMessageAsync(args.Message);
+                return;
+            }
+
             var body = args.Message.Body.ToString();
             var invoiceData = JsonSerializer.Deserialize<InvoiceIssuedMessageDto>(body);
             
             if (invoiceData == null)
             {
-                _logger.LogError("Failed to deserialize invoice message");
-                await args.CompleteMessageAsync(args.Message);
+                _logger.LogError("Failed to deserialize invoice message {MessageId}", messageId);
+                await args.DeadLetterMessageAsync(args.Message, "DeserializationFailed", "Unable to deserialize message body");
                 return;
             }
 
-            using var scope = _serviceScopeFactory.CreateScope();
             var workflow = scope.ServiceProvider.GetRequiredService<StartDeliveryWorkflow>();
             var result = await workflow.ExecuteAsync(invoiceData);
+
+            // Record as processed
+            dbContext.ProcessedMessages.Add(new Delivery.Data.Models.ProcessedMessageEntity
+            {
+                MessageId = messageId,
+                ProcessedAt = DateTime.UtcNow,
+                ProcessorName = nameof(InvoiceIssuedListener)
+            });
+            await dbContext.SaveChangesAsync();
 
             _logger.LogInformation("Delivery processed for invoice from restaurant {RestaurantId} - Status: {Status}",
                 invoiceData.RestaurantId, result.GetType().Name);
 
             await args.CompleteMessageAsync(args.Message);
         }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "JSON deserialization error for message {MessageId}", messageId);
+            await args.DeadLetterMessageAsync(args.Message, "JsonError", ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(ex, "Business logic error processing message {MessageId}", messageId);
+            await args.DeadLetterMessageAsync(args.Message, "BusinessLogicError", ex.Message);
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database error processing message {MessageId}, will retry", messageId);
+            await args.AbandonMessageAsync(args.Message);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing invoice message");
-            await args.AbandonMessageAsync(args.Message);
+            _logger.LogError(ex, "Unexpected error processing message {MessageId}", messageId);
+            
+            // Check delivery count to avoid infinite retries
+            if (args.Message.DeliveryCount >= 3)
+            {
+                _logger.LogError("Message {MessageId} exceeded max delivery attempts, moving to DLQ", messageId);
+                await args.DeadLetterMessageAsync(args.Message, "MaxRetriesExceeded", ex.Message);
+            }
+            else
+            {
+                await args.AbandonMessageAsync(args.Message);
+            }
         }
     }
 

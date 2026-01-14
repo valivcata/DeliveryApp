@@ -37,6 +37,17 @@ public class OrderRepository : IOrderRepository
 
     public async Task<Guid> SaveAsync(IOrder order)
     {
+        // Validate that only final states are persisted
+        if (order is UnvalidatedOrder)
+        {
+            throw new InvalidOperationException("Cannot save unvalidated order. Complete validation first.");
+        }
+        
+        if (order is ValidatedOrder)
+        {
+            throw new InvalidOperationException("Cannot save validated order. Complete the placement operation first.");
+        }
+
         var entity = MapToEntity(order);
         
         _context.Orders.Add(entity);

@@ -3,6 +3,7 @@ using Order.Data.Repositories;
 using Order.Domain.Repositories;
 using Order.Domain.Workflows;
 using Order.Events.ServiceBus;
+using Order.Workers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -29,6 +30,8 @@ builder.Services.AddScoped<PlaceOrderWorkflow>(sp =>
         orderRepo, 
         settings.Value.TopicName ?? "order-topic");
 });
+
+builder.Services.AddHostedService<OrderRequestListener>();
 
 var host = builder.Build();
 host.Run();

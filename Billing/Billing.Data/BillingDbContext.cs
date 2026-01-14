@@ -10,6 +10,7 @@ public class BillingDbContext : DbContext
     }
 
     public DbSet<InvoiceEntity> Invoices => Set<InvoiceEntity>();
+    public DbSet<ProcessedMessageEntity> ProcessedMessages => Set<ProcessedMessageEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -43,6 +44,21 @@ public class BillingDbContext : DbContext
             entity.HasIndex(e => e.RestaurantId);
             entity.HasIndex(e => e.CustomerPhone);
             entity.HasIndex(e => e.CreatedAt);
+        });
+
+        modelBuilder.Entity<ProcessedMessageEntity>(entity =>
+        {
+            entity.HasKey(e => e.MessageId);
+            
+            entity.Property(e => e.MessageId)
+                .IsRequired()
+                .HasMaxLength(255);
+            
+            entity.Property(e => e.ProcessorName)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.HasIndex(e => e.ProcessedAt);
         });
     }
 }

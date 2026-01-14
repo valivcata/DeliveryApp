@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace Billing.Workers;
 
@@ -65,31 +66,80 @@ public class OrderPlacedListener : BackgroundService
 
     private async Task ProcessMessageAsync(ProcessMessageEventArgs args)
     {
+        var messageId = args.Message.MessageId;
+        
         try
         {
+            // Check for idempotency - skip if already processed
+            using var scope = _serviceScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<Billing.Data.BillingDbContext>();
+            
+            var alreadyProcessed = await dbContext.ProcessedMessages
+                .AnyAsync(m => m.MessageId == messageId);
+            
+            if (alreadyProcessed)
+            {
+                _logger.LogInformation("Message {MessageId} already processed, skipping", messageId);
+                await args.CompleteMessageAsync(args.Message);
+                return;
+            }
+
             var body = args.Message.Body.ToString();
             var orderData = JsonSerializer.Deserialize<OrderPlacedMessageDto>(body);
             
             if (orderData == null)
             {
-                _logger.LogError("Failed to deserialize order message");
-                await args.CompleteMessageAsync(args.Message);
+                _logger.LogError("Failed to deserialize order message {MessageId}", messageId);
+                await args.DeadLetterMessageAsync(args.Message, "DeserializationFailed", "Unable to deserialize message body");
                 return;
             }
 
-            using var scope = _serviceScopeFactory.CreateScope();
             var workflow = scope.ServiceProvider.GetRequiredService<IssueInvoiceWorkflow>();
             var result = await workflow.ExecuteAsync(orderData);
+
+            // Record as processed
+            dbContext.ProcessedMessages.Add(new Billing.Data.Models.ProcessedMessageEntity
+            {
+                MessageId = messageId,
+                ProcessedAt = DateTime.UtcNow,
+                ProcessorName = nameof(OrderPlacedListener)
+            });
+            await dbContext.SaveChangesAsync();
 
             _logger.LogInformation("Invoice processed for order from restaurant {RestaurantId} - Status: {Status}",
                 orderData.RestaurantId, result.GetType().Name);
 
             await args.CompleteMessageAsync(args.Message);
         }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "JSON deserialization error for message {MessageId}", messageId);
+            await args.DeadLetterMessageAsync(args.Message, "JsonError", ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(ex, "Business logic error processing message {MessageId}", messageId);
+            await args.DeadLetterMessageAsync(args.Message, "BusinessLogicError", ex.Message);
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database error processing message {MessageId}, will retry", messageId);
+            await args.AbandonMessageAsync(args.Message);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing order message");
-            await args.AbandonMessageAsync(args.Message);
+            _logger.LogError(ex, "Unexpected error processing message {MessageId}", messageId);
+            
+            // Check delivery count to avoid infinite retries
+            if (args.Message.DeliveryCount >= 3)
+            {
+                _logger.LogError("Message {MessageId} exceeded max delivery attempts, moving to DLQ", messageId);
+                await args.DeadLetterMessageAsync(args.Message, "MaxRetriesExceeded", ex.Message);
+            }
+            else
+            {
+                await args.AbandonMessageAsync(args.Message);
+            }
         }
     }
 

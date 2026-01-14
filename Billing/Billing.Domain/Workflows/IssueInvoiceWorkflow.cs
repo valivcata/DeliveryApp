@@ -11,7 +11,6 @@ public class IssueInvoiceWorkflow
     private readonly IEventSender _eventSender;
     private readonly IInvoiceRepository _invoiceRepository;
     private readonly string _topicName;
-    private string _deliveryAddress = string.Empty;
 
     public IssueInvoiceWorkflow(
         IEventSender eventSender,
@@ -27,15 +26,12 @@ public class IssueInvoiceWorkflow
     {
         try
         {
-            // Store delivery address for event publishing
-            _deliveryAddress = command.DeliveryAddress;
-            
             IInvoice invoice = ExecuteBusinessLogic(command);
 
             if (invoice is InvoiceIssued issued)
             {
                 await _invoiceRepository.SaveAsync(invoice);
-                await PublishToServiceBusAsync(issued);
+                await PublishToServiceBusAsync(issued, command.DeliveryAddress);
             }
 
             return invoice.ToEvent();
@@ -60,13 +56,13 @@ public class IssueInvoiceWorkflow
         return invoice;
     }
 
-    private async Task PublishToServiceBusAsync(InvoiceIssued issued)
+    private async Task PublishToServiceBusAsync(InvoiceIssued issued, string deliveryAddress)
     {
         var invoiceMessage = new
         {
             RestaurantId = issued.OrderRef.RestaurantId,
             CustomerPhone = issued.OrderRef.CustomerPhone,
-            DeliveryAddress = _deliveryAddress,
+            DeliveryAddress = deliveryAddress,
             Amount = issued.Amount.Value,
             Tax = issued.Tax.Value,
             Total = issued.Total.Value,

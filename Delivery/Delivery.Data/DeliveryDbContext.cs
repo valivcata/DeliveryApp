@@ -10,6 +10,7 @@ public class DeliveryDbContext : DbContext
     }
 
     public DbSet<DeliveryEntity> Deliveries => Set<DeliveryEntity>();
+    public DbSet<ProcessedMessageEntity> ProcessedMessages => Set<ProcessedMessageEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -45,6 +46,21 @@ public class DeliveryDbContext : DbContext
             entity.HasIndex(e => e.CustomerPhone);
             entity.HasIndex(e => e.DriverId);
             entity.HasIndex(e => e.CreatedAt);
+        });
+
+        modelBuilder.Entity<ProcessedMessageEntity>(entity =>
+        {
+            entity.HasKey(e => e.MessageId);
+            
+            entity.Property(e => e.MessageId)
+                .IsRequired()
+                .HasMaxLength(255);
+            
+            entity.Property(e => e.ProcessorName)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.HasIndex(e => e.ProcessedAt);
         });
     }
 }

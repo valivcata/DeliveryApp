@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>dotnet-billing-billing</UserSecretsId>
+  </PropertyGroup>
+
+  <!-- Exclude source files from referenced projects -->
+  <ItemGroup>
+    <Compile Remove="Billing.Domain\**\*.cs" />
+    <Compile Remove="Billing.Data\**\*.cs" />
+    <Compile Remove="Billing.Events\**\*.cs" />
+    <Compile Remove="Billing.Events.ServiceBus\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="Billing.Domain\Billing.Domain.csproj" />
+    <ProjectReference Include="Billing.Data\Billing.Data.csproj" />
+    <ProjectReference Include="Billing.Events\Billing.Events.csproj" />
+    <ProjectReference Include="Billing.Events.ServiceBus\Billing.Events.ServiceBus.csproj" />
+  </ItemGroup>
+
+</Project>

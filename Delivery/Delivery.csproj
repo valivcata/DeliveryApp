@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>dotnet-delivery-delivery</UserSecretsId>
+  </PropertyGroup>
+
+  <!-- Exclude source files from referenced projects -->
+  <ItemGroup>
+    <Compile Remove="Delivery.Domain\**\*.cs" />
+    <Compile Remove="Delivery.Data\**\*.cs" />
+    <Compile Remove="Delivery.Events\**\*.cs" />
+    <Compile Remove="Delivery.Events.ServiceBus\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="Delivery.Domain\Delivery.Domain.csproj" />
+    <ProjectReference Include="Delivery.Data\Delivery.Data.csproj" />
+    <ProjectReference Include="Delivery.Events\Delivery.Events.csproj" />
+    <ProjectReference Include="Delivery.Events.ServiceBus\Delivery.Events.ServiceBus.csproj" />
+  </ItemGroup>
+
+</Project>

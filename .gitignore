@@ -59,10 +59,27 @@ _ReSharper*/
 # Migration backup files
 *.bak
 
-# App settings with secrets
-appsettings.Development.json
-appsettings.Production.json
+# App settings with secrets (keep template files only)
+appsettings.json
+appsettings.*.json
+!appsettings.Development.json.template
+!appsettings.Production.json.template
 **/appsettings.Local.json
+
+# Launch settings (may contain sensitive URLs/ports)
+**/Properties/launchSettings.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Azure/AWS credentials
+*.publishsettings
+*.azurePubxml
+
+# User Secrets
+secrets.json
 
 # OS generated files
 .DS_Store
@@ -72,3 +89,8 @@ appsettings.Production.json
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Secrets - Development config files with real credentials
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/appsettings.Production.json

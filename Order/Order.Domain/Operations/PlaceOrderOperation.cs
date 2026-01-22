@@ -4,7 +4,7 @@ namespace Order.Domain.Operations;
 
 internal class PlaceOrderOperation : OrderOperation
 {
-    protected override IOrder OnValidated(ValidatedOrder order)
+    protected override IOrder OnEnriched(EnrichedOrder order)
     {
         return new OrderPlaced(
             order.Restaurant,

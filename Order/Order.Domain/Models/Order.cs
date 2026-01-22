@@ -18,6 +18,16 @@ public static class Order
         OrderAmount Amount
     ) : IOrder;
 
+    public record EnrichedOrder(
+        RestaurantId Restaurant,
+        CustomerPhone Phone,
+        DeliveryAddress Address,
+        OrderAmount Amount,
+        DateTime OrderDate,
+        DateTime EstimatedDeliveryTime,
+        string OrderReference
+    ) : IOrder;
+
     public record OrderPlaced(
         RestaurantId Restaurant,
         CustomerPhone Phone,

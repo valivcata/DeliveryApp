@@ -30,14 +30,22 @@ public class IssueInvoiceWorkflow
 
             if (invoice is InvoiceIssued issued)
             {
+                Console.WriteLine($"           ✓ Saving invoice to database...");
                 await _invoiceRepository.SaveAsync(invoice);
+                Console.WriteLine($"           ✓ Invoice saved successfully");
+                
+                Console.WriteLine($"[Step 5/6] 📤 Publishing to Service Bus topic: {_topicName}");
                 await PublishToServiceBusAsync(issued, command.DeliveryAddress);
+                Console.WriteLine($"           ✓ Event published to {_topicName}");
             }
 
             return invoice.ToEvent();
         }
         catch (Exception ex)
         {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"           ❌ Workflow error: {ex.Message}");
+            Console.ResetColor();
             return new InvoiceFailedEvent($"Unexpected error: {ex.Message}", DateTime.UtcNow);
         }
     }
@@ -50,8 +58,35 @@ public class IssueInvoiceWorkflow
             command.OrderAmount
         );
 
+        Console.WriteLine($"           → State: UnprocessedInvoice");
+        
+        Console.WriteLine($"           → Running CalculateInvoiceOperation...");
         invoice = new CalculateInvoiceOperation().Transform(invoice);
+        Console.WriteLine($"           → State: {invoice.GetType().Name}");
+        
+        if (invoice is InvalidInvoice invalid)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"           ❌ Calculation failed: {invalid.Reason}");
+            Console.ResetColor();
+            return invoice;
+        }
+        
+        Console.WriteLine($"           → Running ValidateTaxOperation...");
+        invoice = new ValidateTaxOperation().Transform(invoice);
+        Console.WriteLine($"           → State: {invoice.GetType().Name}");
+        
+        if (invoice is InvalidInvoice invalidTax)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"           ❌ Tax validation failed: {invalidTax.Reason}");
+            Console.ResetColor();
+            return invoice;
+        }
+        
+        Console.WriteLine($"           → Running IssueInvoiceOperation...");
         invoice = new IssueInvoiceOperation().Transform(invoice);
+        Console.WriteLine($"           → State: {invoice.GetType().Name}");
 
         return invoice;
     }

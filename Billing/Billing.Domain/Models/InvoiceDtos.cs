@@ -1,11 +1,23 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Billing.Domain.Models;
 
 public class OrderPlacedMessageDto
 {
+    [Required]
     public string RestaurantId { get; set; } = string.Empty;
+    
+    [Required]
     public string CustomerPhone { get; set; } = string.Empty;
+    
+    [Required]
     public string DeliveryAddress { get; set; } = string.Empty;
+    
+    [Required]
+    [Range(0.01, double.MaxValue)]
     public decimal OrderAmount { get; set; }
+    
+    [Required]
     public DateTime PlacedAt { get; set; }
 }
 

@@ -30,14 +30,22 @@ public class PlaceOrderWorkflow
 
             if (order is OrderPlaced placed)
             {
+                Console.WriteLine($"           ✓ Saving order to database...");
                 await _orderRepository.SaveAsync(order);
+                Console.WriteLine($"           ✓ Order saved successfully");
+                
+                Console.WriteLine($"[Step 3/4] 📤 Publishing to Service Bus topic: {_topicName}");
                 await PublishToServiceBusAsync(placed);
+                Console.WriteLine($"           ✓ Event published to {_topicName}");
             }
 
             return order.ToEvent();
         }
         catch (Exception ex)
         {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"           ❌ Workflow error: {ex.Message}");
+            Console.ResetColor();
             return new OrderFailedEvent($"Unexpected error: {ex.Message}", DateTime.UtcNow);
         }
     }
@@ -51,8 +59,27 @@ public class PlaceOrderWorkflow
             command.OrderAmount
         );
 
+        Console.WriteLine($"           → State: UnvalidatedOrder");
+        
+        Console.WriteLine($"           → Running ValidateOrderOperation...");
         order = new ValidateOrderOperation().Transform(order);
+        Console.WriteLine($"           → State: {order.GetType().Name}");
+        
+        if (order is InvalidOrder invalid)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"           ❌ Validation failed: {invalid.Reason}");
+            Console.ResetColor();
+            return order;
+        }
+        
+        Console.WriteLine($"           → Running EnrichOrderOperation...");
+        order = new EnrichOrderOperation().Transform(order);
+        Console.WriteLine($"           → State: {order.GetType().Name}");
+        
+        Console.WriteLine($"           → Running PlaceOrderOperation...");
         order = new PlaceOrderOperation().Transform(order);
+        Console.WriteLine($"           → State: {order.GetType().Name}");
 
         return order;
     }

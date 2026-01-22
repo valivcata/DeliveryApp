@@ -39,28 +39,39 @@ public class InvoiceIssuedListener : BackgroundService
             return;
         }
         
-        _client = new ServiceBusClient(connectionString);
-        
-        _processor = _client.CreateProcessor(
-            _settings.TopicName,
-            _settings.SubscriptionName,
-            new ServiceBusProcessorOptions
-            {
-                MaxConcurrentCalls = 1,
-                AutoCompleteMessages = false
-            });
-
-        _processor.ProcessMessageAsync += ProcessMessageAsync;
-        _processor.ProcessErrorAsync += ProcessErrorAsync;
-
-        _logger.LogInformation("Starting to listen for invoice events on topic: {TopicName}, subscription: {Subscription}",
-            _settings.TopicName, _settings.SubscriptionName);
-
-        await _processor.StartProcessingAsync(stoppingToken);
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            await Task.Delay(1000, stoppingToken);
+            _client = new ServiceBusClient(connectionString);
+            
+            _processor = _client.CreateProcessor(
+                _settings.TopicName,
+                _settings.SubscriptionName,
+                new ServiceBusProcessorOptions
+                {
+                    MaxConcurrentCalls = 1,
+                    AutoCompleteMessages = false
+                });
+
+            _processor.ProcessMessageAsync += ProcessMessageAsync;
+            _processor.ProcessErrorAsync += ProcessErrorAsync;
+
+            _logger.LogInformation("Starting to listen for invoice events on topic: {TopicName}, subscription: {Subscription}",
+                _settings.TopicName, _settings.SubscriptionName);
+
+            await _processor.StartProcessingAsync(stoppingToken);
+
+            // Keep the service running until cancellation is requested
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown, ignore
+            _logger.LogInformation("Service Bus listener shutting down gracefully...");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "FATAL ERROR starting Service Bus listener");
+            throw;
         }
     }
 
@@ -68,18 +79,30 @@ public class InvoiceIssuedListener : BackgroundService
     {
         var messageId = args.Message.MessageId;
         
+        Console.ForegroundColor = ConsoleColor.Magenta;
+        Console.WriteLine("\n" + new string('=', 60));
+        Console.WriteLine("  DELIVERY SERVICE - Processing Invoice");
+        Console.WriteLine(new string('=', 60));
+        Console.ResetColor();
+        
+        _logger.LogInformation("[STEP 1/7] Received message: {MessageId}", messageId);
+        
         try
         {
             // Check for idempotency - skip if already processed
             using var scope = _serviceScopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<Delivery.Data.DeliveryDbContext>();
             
+            _logger.LogInformation("[STEP 2/7] Checking idempotency for message {MessageId}...", messageId);
+            
             var alreadyProcessed = await dbContext.ProcessedMessages
                 .AnyAsync(m => m.MessageId == messageId);
             
             if (alreadyProcessed)
             {
-                _logger.LogInformation("Message {MessageId} already processed, skipping", messageId);
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("  ⚠ Message already processed, skipping");
+                Console.ResetColor();
                 await args.CompleteMessageAsync(args.Message);
                 return;
             }
@@ -94,8 +117,21 @@ public class InvoiceIssuedListener : BackgroundService
                 return;
             }
 
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"  Restaurant: {invoiceData.RestaurantId}");
+            Console.WriteLine($"  Customer:   {invoiceData.CustomerPhone}");
+            Console.WriteLine($"  Address:    {invoiceData.DeliveryAddress}");
+            Console.WriteLine($"  Total:      ${invoiceData.Total:F2}");
+            Console.ResetColor();
+            
+            _logger.LogInformation("[STEP 3/7] Assigning delivery driver...");
+            _logger.LogInformation("[STEP 4/7] Validating destination...");
+            _logger.LogInformation("[STEP 5/7] Optimizing delivery route...");
+            
             var workflow = scope.ServiceProvider.GetRequiredService<StartDeliveryWorkflow>();
             var result = await workflow.ExecuteAsync(invoiceData);
+            
+            _logger.LogInformation("[STEP 6/7] Starting delivery...");
 
             // Record as processed
             dbContext.ProcessedMessages.Add(new Delivery.Data.Models.ProcessedMessageEntity
@@ -105,9 +141,18 @@ public class InvoiceIssuedListener : BackgroundService
                 ProcessorName = nameof(InvoiceIssuedListener)
             });
             await dbContext.SaveChangesAsync();
+            
+            _logger.LogInformation("[STEP 7/7] Publishing DeliveryStarted event to delivery-topic...");
 
-            _logger.LogInformation("Delivery processed for invoice from restaurant {RestaurantId} - Status: {Status}",
-                invoiceData.RestaurantId, result.GetType().Name);
+            if (result is DeliveryStartedEvent started)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"\n  ✓ Delivery started successfully!");
+                Console.WriteLine($"    Driver: {started.DriverId}");
+                Console.WriteLine($"    Route:  {started.Route}");
+                Console.WriteLine(new string('=', 60) + "\n");
+                Console.ResetColor();
+            }
 
             await args.CompleteMessageAsync(args.Message);
         }

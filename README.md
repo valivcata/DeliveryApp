@@ -2,15 +2,47 @@
 
 A Domain-Driven Design (DDD) food delivery system with three isolated bounded contexts communicating via Azure Service Bus.
 
+## 🚀 Quick Start
+
+**New to this project? Start here:**
+
+1. 📖 Read the [QUICKSTART.md](QUICKSTART.md) - Get up and running in minutes!
+2. 📚 For detailed documentation, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+
+**TL;DR:**
+```bash
+# Start each service in a separate terminal:
+# Terminal 1: cd Order && dotnet run
+# Terminal 2: cd Billing && dotnet run
+# Terminal 3: cd Delivery && dotnet run
+
+# Then open: http://localhost:5002
+```
+
+## ✨ Key Features
+
+✅ **3+ Operations per Workflow** - Each service implements multiple domain operations  
+✅ **REST API with Swagger** - Order service exposes a fully documented API  
+✅ **Event-Driven Architecture** - Microservices communicate via Azure Service Bus  
+✅ **Parallel Processing** - All services run independently and concurrently  
+✅ **Idempotency Support** - Handles duplicate messages gracefully  
+✅ **Pre-populated Data** - Sample restaurants and test data included  
+
 ## Architecture Overview
 
 ```
 ┌──────────────┐  order-topic   ┌──────────────┐  billing-topic  ┌──────────────┐
-│    Order     │───────────────>│   Billing    │────────────────>│   Delivery   │
-│   Context    │ OrderPlaced    │   Context    │ InvoiceIssued   │   Context    │
+│  Order API   │───────────────>│   Billing    │────────────────>│   Delivery   │
+│   (Web API)  │ OrderPlaced    │   (Worker)   │ InvoiceIssued   │   (Worker)   │
 └──────────────┘                └──────────────┘                 └──────────────┘
      OrderDb                          BillingDb                       DeliveryDb
 ```
+
+**Workflow Operations:**
+
+- **Order Workflow**: Validate → Enrich → Place (3 operations)
+- **Billing Workflow**: Calculate → Validate Tax → Issue (3 operations)  
+- **Delivery Workflow**: Assign → Optimize Route → Start (3 operations)
 
 ## Project Structure
 
@@ -440,7 +472,8 @@ Each service logs:
 - **Projects per Context**: 5
 - **Database Tables**: 7 (Orders, Invoices, Deliveries, Restaurants, 3x ProcessedMessages)
 - **Service Bus Topics**: 3
-- **Background Workers**: 3 (OrderRequestListener, OrderPlacedListener, InvoiceIssuedListener)
+- **Background Workers**: 2 (OrderPlacedListener, InvoiceIssuedListener)
+- **REST API**: Order API with Swagger UI (http://localhost:5002)
 
 ## Recent Enhancements
 
@@ -449,13 +482,13 @@ Each service logs:
 2. **Dead-Letter Queues**: Sophisticated error categorization and DLQ routing
 3. **Repository Validation**: State machine enforcement at persistence layer
 4. **Delivery Address Flow**: Proper event payload propagation
-5. **Interactive UI**: Arrow-key restaurant selection with visual feedback
-6. **Thread Safety**: SemaphoreSlim for console synchronization
+5. **REST API**: Full Web API with Swagger for Order placement
+6. **Event-Driven**: Automatic parallel processing across services
 7. **Error Handling**: Retry limits, structured logging, and message tracking
 
 ### 🔮 Future Enhancements
 1. **Compensation**: Implement Saga pattern for rollbacks
-2. **API Layer**: Add REST APIs for Order placement
+2. **Shared Library**: Extract common code (DomainOperation, IEventSender, etc.)
 3. **Event Sourcing**: Store all state transitions
 4. **CQRS**: Separate read/write models
 5. **Driver Pool**: Real driver availability management

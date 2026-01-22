@@ -18,6 +18,15 @@ public static class Delivery
         DeliveryRoute Route
     ) : IDelivery;
 
+    public record OptimizedDelivery(
+        InvoiceReference InvoiceRef,
+        DeliveryDestination Destination,
+        DriverId Driver,
+        DeliveryRoute Route,
+        decimal EstimatedDistance,
+        TimeSpan EstimatedTime
+    ) : IDelivery;
+
     public record DeliveryStarted(
         InvoiceReference InvoiceRef,
         DeliveryDestination Destination,

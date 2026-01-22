@@ -10,17 +10,17 @@ All three bounded contexts have been successfully implemented with production-re
 - **Contexts**: 3 (Order, Billing, Delivery)
 - **Projects**: 15 total (5 per context)
 - **Build Status**: ✅ All contexts compile successfully (0 warnings, 0 errors)
-- **Features**: Idempotency ✅ | Error Handling ✅ | Validation ✅ | Interactive UI ✅
+- **Features**: Idempotency ✅ | Error Handling ✅ | Validation ✅ | REST API ✅
 
 ## Directory Structure
 ```
 DeliveryApp/
 ├── README.md                    # Comprehensive documentation
-├── Order/                       # Order bounded context
+├── Order/                       # Order bounded context (Web API)
 │   ├── Order.sln
-│   ├── Order.csproj            # Host service
+│   ├── Order.csproj            # Web API host
 │   ├── Program.cs
-│   ├── Workers/                # OrderRequestListener (Interactive UI)
+│   ├── Controllers/            # REST API endpoints
 │   ├── Order.Domain/           # Business logic
 │   ├── Order.Data/             # Data access
 │   ├── Order.Events/           # Event abstractions

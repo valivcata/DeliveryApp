@@ -4,7 +4,7 @@ namespace Billing.Domain.Operations;
 
 internal class IssueInvoiceOperation : InvoiceOperation
 {
-    protected override IInvoice OnCalculated(CalculatedInvoice invoice)
+    protected override IInvoice OnValidated(ValidatedInvoice invoice)
     {
         return new InvoiceIssued(
             invoice.OrderRef,

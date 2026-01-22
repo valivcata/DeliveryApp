@@ -30,14 +30,22 @@ public class StartDeliveryWorkflow
 
             if (delivery is DeliveryStarted started)
             {
+                Console.WriteLine($"           ✓ Saving delivery to database...");
                 await _deliveryRepository.SaveAsync(delivery);
+                Console.WriteLine($"           ✓ Delivery saved successfully");
+                
+                Console.WriteLine($"[Step 6/7] 📤 Publishing to Service Bus topic: {_topicName}");
                 await PublishToServiceBusAsync(started);
+                Console.WriteLine($"           ✓ Event published to {_topicName}");
             }
 
             return delivery.ToEvent();
         }
         catch (Exception ex)
         {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"           ❌ Workflow error: {ex.Message}");
+            Console.ResetColor();
             return new DeliveryFailedEvent($"Unexpected error: {ex.Message}", DateTime.UtcNow);
         }
     }
@@ -51,8 +59,35 @@ public class StartDeliveryWorkflow
             command.Total
         );
 
+        Console.WriteLine($"           → State: RequestedDelivery");
+        
+        Console.WriteLine($"           → Running AssignDeliveryOperation...");
         delivery = new AssignDeliveryOperation().Transform(delivery);
+        Console.WriteLine($"           → State: {delivery.GetType().Name}");
+        
+        if (delivery is FailedDelivery failed)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"           ❌ Assignment failed: {failed.Reason}");
+            Console.ResetColor();
+            return delivery;
+        }
+        
+        Console.WriteLine($"           → Running OptimizeRouteOperation...");
+        delivery = new OptimizeRouteOperation().Transform(delivery);
+        Console.WriteLine($"           → State: {delivery.GetType().Name}");
+        
+        if (delivery is FailedDelivery failedRoute)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"           ❌ Route optimization failed: {failedRoute.Reason}");
+            Console.ResetColor();
+            return delivery;
+        }
+        
+        Console.WriteLine($"           → Running StartDeliveryOperation...");
         delivery = new StartDeliveryOperation().Transform(delivery);
+        Console.WriteLine($"           → State: {delivery.GetType().Name}");
 
         return delivery;
     }

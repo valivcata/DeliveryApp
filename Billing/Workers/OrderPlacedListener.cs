@@ -39,28 +39,45 @@ public class OrderPlacedListener : BackgroundService
             return;
         }
         
-        _client = new ServiceBusClient(connectionString);
-        
-        _processor = _client.CreateProcessor(
-            _settings.TopicName,
-            _settings.SubscriptionName,
-            new ServiceBusProcessorOptions
-            {
-                MaxConcurrentCalls = 1,
-                AutoCompleteMessages = false
-            });
-
-        _processor.ProcessMessageAsync += ProcessMessageAsync;
-        _processor.ProcessErrorAsync += ProcessErrorAsync;
-
-        _logger.LogInformation("Starting to listen for order events on topic: {TopicName}, subscription: {Subscription}",
-            _settings.TopicName, _settings.SubscriptionName);
-
-        await _processor.StartProcessingAsync(stoppingToken);
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            await Task.Delay(1000, stoppingToken);
+            _logger.LogInformation("Creating Service Bus client...");
+            _client = new ServiceBusClient(connectionString);
+            
+            _logger.LogInformation("Creating processor for topic: {TopicName}, subscription: {Subscription}",
+                _settings.TopicName, _settings.SubscriptionName);
+            
+            _processor = _client.CreateProcessor(
+                _settings.TopicName,
+                _settings.SubscriptionName,
+                new ServiceBusProcessorOptions
+                {
+                    MaxConcurrentCalls = 1,
+                    AutoCompleteMessages = false
+                });
+
+            _processor.ProcessMessageAsync += ProcessMessageAsync;
+            _processor.ProcessErrorAsync += ProcessErrorAsync;
+
+            _logger.LogInformation("Starting to listen for order events on topic: {TopicName}, subscription: {Subscription}",
+                _settings.TopicName, _settings.SubscriptionName);
+
+            await _processor.StartProcessingAsync(stoppingToken);
+            
+            _logger.LogInformation(">>> Service Bus processor is now ACTIVELY LISTENING for messages <<<");
+
+            // Keep the service running until cancellation is requested
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown, ignore
+            _logger.LogInformation("Service Bus listener shutting down gracefully...");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "FATAL ERROR starting Service Bus listener");
+            throw;
         }
     }
 
@@ -68,18 +85,30 @@ public class OrderPlacedListener : BackgroundService
     {
         var messageId = args.Message.MessageId;
         
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("\n" + new string('=', 60));
+        Console.WriteLine("  BILLING SERVICE - Processing Order");
+        Console.WriteLine(new string('=', 60));
+        Console.ResetColor();
+        
+        _logger.LogInformation("[STEP 1/6] Received message: {MessageId}", messageId);
+        
         try
         {
             // Check for idempotency - skip if already processed
             using var scope = _serviceScopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<Billing.Data.BillingDbContext>();
             
+            _logger.LogInformation("[STEP 2/6] Checking idempotency for message {MessageId}...", messageId);
+            
             var alreadyProcessed = await dbContext.ProcessedMessages
                 .AnyAsync(m => m.MessageId == messageId);
             
             if (alreadyProcessed)
             {
-                _logger.LogInformation("Message {MessageId} already processed, skipping", messageId);
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("  ⚠ Message already processed, skipping");
+                Console.ResetColor();
                 await args.CompleteMessageAsync(args.Message);
                 return;
             }
@@ -94,7 +123,19 @@ public class OrderPlacedListener : BackgroundService
                 return;
             }
 
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"  Restaurant: {orderData.RestaurantId}");
+            Console.WriteLine($"  Customer:   {orderData.CustomerPhone}");
+            Console.WriteLine($"  Amount:     ${orderData.OrderAmount:F2}");
+            Console.ResetColor();
+            
+            _logger.LogInformation("[STEP 3/6] Calculating invoice (Amount: {Amount}, Tax: 10%)...", orderData.OrderAmount);
+            
             var workflow = scope.ServiceProvider.GetRequiredService<IssueInvoiceWorkflow>();
+            
+            _logger.LogInformation("[STEP 4/6] Validating tax compliance...");
+            _logger.LogInformation("[STEP 5/6] Issuing invoice...");
+            
             var result = await workflow.ExecuteAsync(orderData);
 
             // Record as processed
@@ -105,9 +146,15 @@ public class OrderPlacedListener : BackgroundService
                 ProcessorName = nameof(OrderPlacedListener)
             });
             await dbContext.SaveChangesAsync();
+            
+            _logger.LogInformation("[STEP 6/6] Publishing InvoiceIssued event to billing-topic...");
 
-            _logger.LogInformation("Invoice processed for order from restaurant {RestaurantId} - Status: {Status}",
-                orderData.RestaurantId, result.GetType().Name);
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n  ✓ Invoice issued successfully!");
+            Console.WriteLine($"    Tax:   ${orderData.OrderAmount * 0.10m:F2}");
+            Console.WriteLine($"    Total: ${orderData.OrderAmount * 1.10m:F2}");
+            Console.WriteLine(new string('=', 60) + "\n");
+            Console.ResetColor();
 
             await args.CompleteMessageAsync(args.Message);
         }

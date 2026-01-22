@@ -10,6 +10,7 @@ internal abstract class OrderOperation<TState> : DomainOperation<IOrder, TState,
     {
         UnvalidatedOrder unvalidated => OnUnvalidated(unvalidated, state),
         ValidatedOrder validated => OnValidated(validated, state),
+        EnrichedOrder enriched => OnEnriched(enriched, state),
         OrderPlaced placed => OnPlaced(placed, state),
         InvalidOrder invalid => OnInvalid(invalid, state),
         _ => throw new InvalidOrderException($"Invalid order state: {order.GetType().Name}")
@@ -18,6 +19,8 @@ internal abstract class OrderOperation<TState> : DomainOperation<IOrder, TState,
     protected virtual IOrder OnUnvalidated(UnvalidatedOrder order, TState? state) => order;
 
     protected virtual IOrder OnValidated(ValidatedOrder order, TState? state) => order;
+
+    protected virtual IOrder OnEnriched(EnrichedOrder order, TState? state) => order;
 
     protected virtual IOrder OnPlaced(OrderPlaced order, TState? state) => order;
 
@@ -35,6 +38,10 @@ internal abstract class OrderOperation : OrderOperation<object>
     protected sealed override IOrder OnValidated(ValidatedOrder order, object? state) => OnValidated(order);
 
     protected virtual IOrder OnValidated(ValidatedOrder order) => order;
+
+    protected sealed override IOrder OnEnriched(EnrichedOrder order, object? state) => OnEnriched(order);
+
+    protected virtual IOrder OnEnriched(EnrichedOrder order) => order;
 
     protected sealed override IOrder OnPlaced(OrderPlaced order, object? state) => OnPlaced(order);
 

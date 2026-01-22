@@ -10,6 +10,7 @@ internal abstract class DeliveryOperation<TState> : DomainOperation<IDelivery, T
     {
         RequestedDelivery requested => OnRequested(requested, state),
         AssignedDelivery assigned => OnAssigned(assigned, state),
+        OptimizedDelivery optimized => OnOptimized(optimized, state),
         DeliveryStarted started => OnStarted(started, state),
         FailedDelivery failed => OnFailed(failed, state),
         _ => throw new InvalidDeliveryException($"Invalid delivery state: {delivery.GetType().Name}")
@@ -17,6 +18,7 @@ internal abstract class DeliveryOperation<TState> : DomainOperation<IDelivery, T
 
     protected virtual IDelivery OnRequested(RequestedDelivery delivery, TState? state) => delivery;
     protected virtual IDelivery OnAssigned(AssignedDelivery delivery, TState? state) => delivery;
+    protected virtual IDelivery OnOptimized(OptimizedDelivery delivery, TState? state) => delivery;
     protected virtual IDelivery OnStarted(DeliveryStarted delivery, TState? state) => delivery;
     protected virtual IDelivery OnFailed(FailedDelivery delivery, TState? state) => delivery;
 }
@@ -30,6 +32,9 @@ internal abstract class DeliveryOperation : DeliveryOperation<object>
 
     protected sealed override IDelivery OnAssigned(AssignedDelivery delivery, object? state) => OnAssigned(delivery);
     protected virtual IDelivery OnAssigned(AssignedDelivery delivery) => delivery;
+
+    protected sealed override IDelivery OnOptimized(OptimizedDelivery delivery, object? state) => OnOptimized(delivery);
+    protected virtual IDelivery OnOptimized(OptimizedDelivery delivery) => delivery;
 
     protected sealed override IDelivery OnStarted(DeliveryStarted delivery, object? state) => OnStarted(delivery);
     protected virtual IDelivery OnStarted(DeliveryStarted delivery) => delivery;

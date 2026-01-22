@@ -4,7 +4,7 @@ namespace Delivery.Domain.Operations;
 
 internal class StartDeliveryOperation : DeliveryOperation
 {
-    protected override IDelivery OnAssigned(AssignedDelivery delivery)
+    protected override IDelivery OnOptimized(OptimizedDelivery delivery)
     {
         return new DeliveryStarted(
             delivery.InvoiceRef,

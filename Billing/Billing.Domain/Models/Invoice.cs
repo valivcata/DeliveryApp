@@ -17,6 +17,13 @@ public static class Invoice
         TotalAmount Total
     ) : IInvoice;
 
+    public record ValidatedInvoice(
+        OrderReference OrderRef,
+        InvoiceAmount Amount,
+        TaxAmount Tax,
+        TotalAmount Total
+    ) : IInvoice;
+
     public record InvoiceIssued(
         OrderReference OrderRef,
         InvoiceAmount Amount,
@@ -24,6 +31,8 @@ public static class Invoice
         TotalAmount Total,
         DateTime IssuedAt
     ) : IInvoice;
+
+    public record FailedInvoice(string Reason) : IInvoice;
 
     public record InvalidInvoice(string Reason) : IInvoice;
 }
